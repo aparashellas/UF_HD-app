@@ -74,4 +74,99 @@ st.subheader("🧮 Current plan")
 st.metric("r_max (mL/kg/h)", f"{r_max_dyn:.2f}")
 st.metric("UF_cap_net (L)", f"{UF_cap_L:.2f}")
 st.metric("UF_needed_net (L)", f"{UF_needed_L:.2f}")
-st.
+st.metric("UF_recommended (L)", f"{UF_recommended_L:.2f}")
+if UF_deficit_L > 0.0:
+    st.warning(f"UF_deficit: {UF_deficit_L:.2f} L — εξετάστε παράταση συνεδρίας ή split UF.")
+# --- Actuals & Learning (post-session) ---
+st.markdown("---")
+st.subheader("📈 Actuals & learning (post-session)")
+cA, cB, cC, cD = st.columns(4)
+with cA:
+    UF_actual_total = st.number_input("UF_actual_total (L)", value=0.0, step=0.1, format="%.2f")
+with cB:
+    duration_actual_min = st.number_input("Διάρκεια_actual (min)", value=duration_min, step=1)
+with cC:
+    outcome_last = st.selectbox("Outcome_last (0=OK,1=hypotension)", [0,1], index=0)
+with cD:
+    gamma0_offset_current = st.number_input("γ0_offset_current", value=0.0, step=0.1, format="%.2f")
+
+UF_actual_net = None
+if UF_actual_total > 0:
+    UF_actual_net = UF_actual_total - rinseback_L - iv_L - intake_L
+
+r_used_last = None
+if (UF_actual_net is not None) and duration_actual_min > 0 and weight > 0:
+    r_used_last = UF_actual_net * 1000.0 * 60.0 / (weight * duration_actual_min)
+
+def sigmoid(x): 
+    import math
+    return 1.0/(1.0 + math.exp(-x))
+
+p_old_last = None
+if r_used_last is not None:
+    lin_old = (gamma0 +
+               gamma1 * r_used_last +
+               g_meds*meds_recent + g_tmp*tmp_slope + g_vp*vp_trend +
+               g_age*max(0.0, (age - 60.0)/10.0) + g_dm*dm + g_press*dP_atm_10hPa +
+               gamma0_offset_current)
+    p_old_last = sigmoid(lin_old)
+
+p_target = ( (tau_override if tau_override>0 else tau_default) / 200.0 ) if outcome_last == 0 else min(0.8, 2*((tau_override if tau_override>0 else tau_default)/100.0))
+delta_logit = None
+if (p_old_last is not None) and (0 < p_old_last < 1):
+    import math
+    delta_logit = math.log(p_target/(1-p_target)) - math.log(p_old_last/(1-p_old_last))
+
+alpha = st.number_input("α (learning rate)", value=0.2, step=0.05, min_value=0.0, max_value=1.0)
+gamma0_offset_updated = gamma0_offset_current
+if delta_logit is not None:
+    gamma0_offset_updated = gamma0_offset_current + alpha * delta_logit
+
+# --- Next session planning ---
+import math
+logit_tau = math.log(((tau_override if tau_override>0 else tau_default)/100.0)/(1 - ((tau_override if tau_override>0 else tau_default)/100.0)))
+lin_terms_next = (gamma0 + gamma0_offset_updated + g_meds*meds_recent + g_tmp*tmp_slope +
+                  g_vp*vp_trend + g_age*max(0.0,(age-60.0)/10.0) + g_dm*dm + g_press*dP_atm_10hPa)
+r_max_next = (logit_tau - lin_terms_next) / gamma1 if gamma1 != 0 else float("nan")
+r_max_bounded_base = min(max(((logit_tau - (gamma0 + g_meds*meds_recent + g_tmp*tmp_slope + g_vp*vp_trend + g_age*max(0.0,(age-60.0)/10.0) + g_dm*dm + g_press*dP_atm_10hPa)) / gamma1) if gamma1!=0 else float('nan'), rmin), rmax)
+r_max_next_bounded = min(max(r_max_next, rmin), rmax)
+r_max_next_capped = min(r_max_next_bounded, 1.15 * r_max_bounded_base)  # +15% cap
+guard_mult = (0.85 if (tmp_slope > 2.0 or vp_trend > 1.5) else 1.0)  # ίδιο guard με πάνω, προσαρμόσ’το αν άλλαξες τιμές
+r_max_next_dyn = r_max_next_capped * guard_mult
+
+UF_cap_next_L = r_max_next_dyn * (duration_min/60.0) * weight / 1000.0
+extra_minutes = 0.0
+if (idwg + intake_L - rinseback_L - iv_L) - min(UF_cap_L, idwg + intake_L - rinseback_L - iv_L) > 0 and r_max_next_dyn > 0:
+    UF_deficit_L = (idwg + intake_L - rinseback_L - iv_L) - min(UF_cap_L, idwg + intake_L - rinseback_L - iv_L)
+    extra_minutes = UF_deficit_L * 1000.0 / (r_max_next_dyn * weight) * 60.0
+
+def round_up_step(x, step):
+    return int(math.ceil(x/step) * step)
+
+recommended_total_minutes = round_up_step(duration_min + max(0.0, extra_minutes), 5)
+
+st.markdown("### 🔄 Next session planning")
+cN1, cN2, cN3, cN4 = st.columns(4)
+cN1.metric("r_max_next (dyn)", f"{r_max_next_dyn:.2f}")
+cN2.metric("UF_cap_next (L)", f"{UF_cap_next_L:.2f}")
+cN3.metric("Extra minutes needed", f"{extra_minutes:.0f} min")
+cN4.metric("Recommended total minutes", f"{recommended_total_minutes} min")
+
+# --- Export snapshot JSON ---
+st.markdown("---")
+import json
+if st.button("📤 Export snapshot (JSON)"):
+    data = {
+        "tau": (tau_override if tau_override>0 else tau_default),
+        "UF_cap_L": UF_cap_L, "UF_needed_L": UF_needed_L, "UF_recommended_L": UF_recommended_L,
+        "UF_actual_total": UF_actual_total, "UF_actual_net": UF_actual_net,
+        "r_used_last": r_used_last, "p_old_last": p_old_last, "p_target": p_target,
+        "gamma0_offset_updated": gamma0_offset_updated,
+        "r_max_next_dyn": r_max_next_dyn, "UF_cap_next_L": UF_cap_next_L,
+        "extra_minutes": extra_minutes, "recommended_total_minutes": recommended_total_minutes
+    }
+    st.download_button("Download session.json", data=json.dumps(data, indent=2), file_name="session.json", mime="application/json")
+
+st.caption("⚠️ Prototype — validate clinically before routine use")
+
+
