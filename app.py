@@ -162,21 +162,22 @@ with tab_plan:
         chest_symp = st.checkbox("Θωρακικά συμπτώματα", value=False)
 
     # --- Νεφρική/Καρδιολογική συννοσηρότητα (mL/ημέρα & AS/MR/DM)
-    st.markdown("### Νεφρική/Καρδιολογική συννοσηρότητα")
-    cr_cols = st.columns(4)
-    with cr_cols[0]:
-        residual_urine_mLd = st.number_input(
-            "Υπολειπόμενη διούρηση (mL/ημέρα)",
-            value=0, step=50, format="%d",
-            help="Ημερήσια υπόλειπη διούρηση σε mL/ημέρα (π.χ. 800)"
-        )
-    with cr_cols[1]:
-        # dm ήδη υπάρχει παραπάνω· αν προτιμάς, αφαίρεσέ το από εδώ
-        dm = st.selectbox("ΣΔ (0/1)", [0,1], index=dm)
-    with cr_cols[2]:
-        severe_as = st.checkbox("Σοβαρή στένωση αορτής (AS)", value=False)
-    with cr_cols[3]:
-        severe_mr = st.checkbox("Σοβαρή ανεπάρκεια μιτροειδούς (MR)", value=False)
+    
+st.markdown("### Νεφρική/Καρδιολογική συννοσηρότητα")
+cr_cols = st.columns(4)
+with cr_cols[0]:
+    residual_urine_mLd = st.number_input(
+        "Υπολειπόμενη διούρηση (mL/ημέρα)",
+        value=0, step=50, format="%d",
+        help="Ημερήσια υπόλειπη διούρηση σε mL/ημέρα (π.χ. 800)"
+    )
+with cr_cols[1]:
+    st.write("ΣΔ (0/1):", dm)  # προαιρετική απλή ένδειξη, ΧΩΡΙΣ widget
+with cr_cols[2]:
+    severe_as = st.checkbox("Σοβαρή στένωση αορτής (AS)", value=False)
+with cr_cols[3]:
+    severe_mr = st.checkbox("Σοβαρή ανεπάρκεια μιτροειδούς (MR)", value=False)
+
 
     # ---------- Υπολογισμοί Plan ----------
     def sigmoid(x: float) -> float:
@@ -390,6 +391,7 @@ with tab_learn:
         )
 
 st.caption("⚠️ Prototype — validate clinically πριν από συστηματική χρήση • Προσαρμόστε thresholds/συντελεστές ανά μονάδα")
+
 
 
 
