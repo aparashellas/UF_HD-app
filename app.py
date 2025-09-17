@@ -65,16 +65,18 @@ with tab_plan:
     with c1:
         dcol1, dcol2 = st.columns(2)
         with dcol1:
-        session_date = st.date_input("Ημερομηνία", value=dt.date.today())
+            session_date = st.date_input("Ημερομηνία", value=dt.date.today())
         with dcol2:
-        session_time = st.time_input(
-            "Ώρα",
-            value=dt.datetime.now().time().replace(second=0, microsecond=0)
-        )
-        session_dt = f"{session_date} {session_time.strftime('%H:%M')}"    
-        patient_id = st.text_input("Patient_ID", value="Case01")
-        age = st.number_input("Ηλικία (έτη)", value=72, step=1)
-        weight = st.number_input("Βάρος (kg)", value=72.0, step=0.1, format="%.2f")
+            session_time = st.time_input(
+                "Ώρα",
+                value=dt.datetime.now().time().replace(second=0, microsecond=0)
+            )
+    session_dt = f"{session_date} {session_time.strftime('%H:%M')}"
+
+    patient_id = st.text_input("Patient_ID", value="Case01")
+    age = st.number_input("Ηλικία (έτη)", value=72, step=1)
+    weight = st.number_input("Βάρος (kg)", value=72.0, step=0.1, format="%.2f")
+
     with c2:
         duration_min = st.number_input("Διάρκεια (min, planned)", value=240, step=5)
         idwg = st.number_input("IDWG (kg)", value=2.9, step=0.1)
@@ -398,6 +400,7 @@ with tab_learn:
         )
 
 st.caption("⚠️ Prototype — validate clinically πριν από συστηματική χρήση • Προσαρμόστε thresholds/συντελεστές ανά μονάδα")
+
 
 
 
