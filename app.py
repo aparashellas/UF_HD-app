@@ -217,7 +217,180 @@ with tab_plan:
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("r_max (mL/kg/h)", f"{r_max_dyn:.2f}")
     m2.metric("UF_cap_net (L)", f"{UF_cap_L:.2f}")
-    m3.metric("UF_needed_net (L)", f"{UF_needed_L
+    m3.metric("UF_needed_net (L)", f"{UF_needed_L:.2f}")
+    m4.metric("UF_recommended (L)", f"{UF_recommended_L:.2f}")
+    # Αν υπάρχει έλλειμμα UF, εμφάνισε προειδοποίηση
+    if UF_deficit_L > 0.0:
+        st.warning(f"UF_deficit: {UF_deficit_L:.2f} L — εξετάστε παράταση συνεδρίας ή split UF.")
+
+    # --- Overhydration risk (logistic) ---
+    x_over = (
+        beta0
+        + b_OH * OH_L
+        + b_dysp * (1 if dyspnea else 0)
+        + b_edm  * (1 if edema else 0)
+        + b_ef   * low_ef
+        + b_af   * arrhythmia_any
+        + b_dm_over * dm
+        + b_mr_over * (1 if severe_mr else 0)
+        - b_urine   * (residual_urine_mLd / 1000.0)  # mL → L
+    )
+    P_over = 1.0 / (1.0 + math.exp(-x_over))
+    st.metric("P_overhydration_risk", f"{P_over*100:.1f}%")
+    omega = omega_target
+
+    # Προτάσεις/Alerts με βάση Overhydration + Deficit
+    plan_notes = []
+    if P_over*100 > omega and UF_deficit_L > 0 and r_max_dyn > 0:
+        extra_minutes_over = UF_deficit_L * 1000.0 / (r_max_dyn * weight) * 60.0
+        # Στρογγυλοποίηση στο step
+        def round_up_step(x, step):
+            return int(math.ceil(x/step) * step)
+        extra_minutes_over = round_up_step(extra_minutes_over, round_step)
+        st.info(f"Πρόταση: +{extra_minutes_over} λεπτά με ίδιο ασφαλές r για κάλυψη overload.")
+        plan_notes.append("Υπερυδάτωση ↑ + UF deficit → προτεραιότητα παράτασης αντί αύξησης r.")
+    elif UF_deficit_L > 0:
+        plan_notes.append("Χωρίς υψηλό overload → παράταση ή split UF, ανά κλινική κρίση.")
+
+    alerts = []
+    if UF_deficit_L > 0.0: alerts.append(f"UF deficit {UF_deficit_L:.2f} L")
+    if tmp_slope > tmp_thr or vp_trend > vp_thr: alerts.append("High TMP/VP")
+    if bp_drop_pct >= bp_drop_thr: alerts.append(f"SBP drop ≥{bp_drop_thr:.0f}%")
+    if hypo_symptoms_any == 1: alerts.append("Συμπτώματα υπότασης")
+    if P_over*100 > omega: alerts.append("P_overhydration πάνω από στόχο")
+    if alerts:
+        st.error(" | ".join(alerts))
+    if plan_notes:
+        st.caption(" • ".join(plan_notes))
+
+with tab_learn:
+    st.subheader("Actuals & learning (post-session)")
+
+    # Είσοδοι μετά τη συνεδρία
+    cA, cB, cC, cD = st.columns(4)
+    with cA:
+        UF_actual_total = st.number_input("UF_actual_total (L)", value=0.0, step=0.1, format="%.2f")
+    with cB:
+        duration_actual_min = st.number_input("Διάρκεια_actual (min)", value=duration_min, step=1)
+    with cC:
+        outcome_last = st.selectbox("Outcome_last (0=OK,1=hypotension)", [0,1], index=0)
+    with cD:
+        gamma0_offset_current = st.number_input("γ0_offset_current", value=0.0, step=0.1, format="%.2f")
+
+    # Υπολογισμοί learning
+    UF_actual_net = None
+    if UF_actual_total > 0:
+        UF_actual_net = UF_actual_total - rinseback_L - iv_L - intake_L
+
+    r_used_last = None
+    if (UF_actual_net is not None) and duration_actual_min > 0 and weight > 0:
+        r_used_last = UF_actual_net * 1000.0 * 60.0 / (weight * duration_actual_min)
+
+    # Εκτίμηση p_old_last για το r_used_last
+    p_old_last = None
+    if r_used_last is not None:
+        lin_old = (
+            gamma0
+            + gamma1 * r_used_last
+            + g_meds*meds_recent + g_tmp*tmp_slope + g_vp*vp_trend
+            + g_age*max(0.0, (age - 60.0)/10.0) + g_dm*dm + g_press*dP_atm_10hPa
+            + g_as*(1 if severe_as else 0) + g_mr*(1 if severe_mr else 0)
+            + gamma0_offset_current
+        )
+        p_old_last = 1.0 / (1.0 + math.exp(-lin_old))
+
+    # Στόχος πιθανοτήτων για το learning
+    tau = tau_default
+    p_target = (tau/200.0) if outcome_last == 0 else min(0.8, 2*(tau/100.0))
+
+    # Διόρθωση στο logit
+    delta_logit = None
+    if (p_old_last is not None) and (0 < p_old_last < 1):
+        delta_logit = math.log(p_target/(1-p_target)) - math.log(p_old_last/(1-p_old_last))
+
+    alpha = st.number_input("α (learning rate)", value=0.2, step=0.05, min_value=0.0, max_value=1.0)
+    gamma0_offset_updated = gamma0_offset_current
+    if delta_logit is not None:
+        gamma0_offset_updated = gamma0_offset_current + alpha * delta_logit
+
+    # Next session planning (+15% cap από βάση)
+    logit_tau = math.log((tau/100.0)/(1 - (tau/100.0)))
+    lin_terms_base = (
+        gamma0 + g_meds*meds_recent + g_tmp*tmp_slope + g_vp*vp_trend
+        + g_age*max(0.0,(age-60.0)/10.0) + g_dm*dm + g_press*dP_atm_10hPa
+        + g_as*(1 if severe_as else 0) + g_mr*(1 if severe_mr else 0)
+    )
+    r_bounded_base = min(max((logit_tau - lin_terms_base) / gamma1 if gamma1!=0 else float('nan'), rmin), rmax)
+
+    lin_terms_next = lin_terms_base + gamma0_offset_updated
+    r_next_raw = (logit_tau - lin_terms_next) / gamma1 if gamma1 != 0 else float("nan")
+    r_next_bounded = min(max(r_next_raw, rmin), rmax)
+    r_next_capped = min(r_next_bounded, 1.15 * r_bounded_base)
+
+    guard_hit_next = (tmp_slope > tmp_thr) or (vp_trend > vp_thr) or (bp_drop_pct >= bp_drop_thr) or (hypo_symptoms_any == 1)
+    r_next_dyn = (safety_mult if guard_hit_next else 1.0) * r_next_capped
+
+    UF_cap_next_L = r_next_dyn * (duration_actual_min/60.0) * weight / 1000.0
+
+    # Extra χρόνος αν υπάρχει έλλειμμα στην επόμενη
+    extra_minutes = 0.0
+    if r_next_dyn > 0:
+        UF_needed_L_next = idwg + intake_L - rinseback_L - iv_L
+        UF_cap_L_base = r_next_dyn * (duration_actual_min/60.0) * weight / 1000.0
+        UF_deficit_L_next = max(0.0, UF_needed_L_next - UF_cap_L_base)
+        if UF_deficit_L_next > 0:
+            extra_minutes = UF_deficit_L_next * 1000.0 / (r_next_dyn * weight) * 60.0
+
+    def round_up_step(x, step):
+        return int(math.ceil(x/step) * step)
+
+    recommended_total_minutes = round_up_step(duration_actual_min + max(0.0, extra_minutes), round_step)
+
+    st.markdown("---")
+    cN1, cN2, cN3, cN4 = st.columns(4)
+    cN1.metric("r_max_next (dyn)", f"{r_next_dyn:.2f}")
+    cN2.metric("UF_cap_next (L)", f"{UF_cap_next_L:.2f}")
+    cN3.metric("Extra minutes needed", f"{extra_minutes:.0f} min")
+    cN4.metric("Recommended total minutes", f"{recommended_total_minutes} min")
+
+    # Export snapshot (JSON)
+    st.markdown("---")
+    if st.button("📤 Export snapshot (JSON)"):
+        data = {
+            "session_dt": session_dt, "patient_id": patient_id,
+            "age": age, "weight": weight, "duration_min": duration_min,
+            "idwg": idwg, "intake_L": intake_L, "rinseback_L": rinseback_L, "iv_L": iv_L,
+            "meds_recent": meds_recent, "dm": dm, "dP_atm_10hPa": dP_atm_10hPa,
+            "sbp_pre": sbp_pre, "sbp_post": sbp_post, "bp_drop_pct": bp_drop_pct,
+            "symptoms": {
+                "headache": bool(s_headache), "cramps": bool(s_cramps),
+                "GI": bool(s_gi), "syncope": bool(s_syncope)
+            },
+            "ef_percent": ef_percent, "arrhythmia": bool(arrhythmia), "af_recent": bool(af_recent),
+            "tmp_start": tmp_start, "tmp_end": tmp_end, "tmp_slope": tmp_slope,
+            "vp_start": vp_start, "vp_end": vp_end, "vp_trend": vp_trend,
+            "dialysate": {"Na": dial_Na, "HCO3": dial_HCO3, "cond": dial_cond, "K": dial_K, "Ca": dial_Ca},
+            "OH_L": OH_L, "dyspnea": bool(dyspnea), "edema": bool(edema), "chest_symp": bool(chest_symp),
+            "residual_urine_mLd": residual_urine_mLd,
+            "severe_as": bool(severe_as), "severe_mr": bool(severe_mr),
+            "tau": tau, "r_max_dyn": r_max_dyn, "UF_cap_L": UF_cap_L, "UF_needed_L": UF_needed_L,
+            "UF_recommended_L": UF_recommended_L, "P_overhydration_risk": P_over,
+            "UF_actual_total": UF_actual_total, "UF_actual_net": UF_actual_net,
+            "duration_actual_min": duration_actual_min, "r_used_last": r_used_last,
+            "outcome_last": outcome_last, "alpha": alpha,
+            "gamma0_offset_current": gamma0_offset_current, "gamma0_offset_updated": gamma0_offset_updated,
+            "r_max_next_dyn": r_next_dyn, "UF_cap_next_L": UF_cap_next_L,
+            "extra_minutes": extra_minutes, "recommended_total_minutes": recommended_total_minutes
+        }
+        st.download_button(
+            "Download session.json",
+            data=json.dumps(data, indent=2),
+            file_name="session.json",
+            mime="application/json"
+        )
+
+st.caption("⚠️ Prototype — validate clinically πριν από συστηματική χρήση • Προσαρμόστε thresholds/συντελεστές ανά μονάδα")
+
 
 
 
