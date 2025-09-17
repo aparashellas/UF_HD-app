@@ -5,6 +5,19 @@ import json
 
 # ---------- Page setup ----------
 st.set_page_config(page_title="Individualized UF Helper", page_icon="🩺", layout="wide")
+# Wider content area + comfy column gaps
+st.markdown(
+    """
+    <style>
+      .block-container {max-width: 1200px; padding-top: 1rem; padding-bottom: 1rem;}
+      /* προαιρετικά: πιο φαρδιά sidebar
+      section[data-testid="stSidebar"] {width: 320px;}
+      div[data-testid="stSidebar"] div[role="radiogroup"] {gap: 0.25rem;}
+      */
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 st.title("🩺 Individualized UF Helper")
 st.caption(
     "v0.3 • UF safety + Overhydration balance • BP pre/post, συμπτώματα, EF/αρρυθμίες, "
@@ -222,13 +235,24 @@ with cr_cols[3]:
     UF_recommended_L = min(UF_cap_L, UF_needed_L)
     UF_deficit_L = max(0.0, UF_needed_L - UF_recommended_L)
 
-    st.markdown("---")
-    st.subheader("🧮 Current plan")
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("r_max (mL/kg/h)", f"{r_max_dyn:.2f}")
-    m2.metric("UF_cap_net (L)", f"{UF_cap_L:.2f}")
-    m3.metric("UF_needed_net (L)", f"{UF_needed_L:.2f}")
-    m4.metric("UF_recommended (L)", f"{UF_recommended_L:.2f}")
+st.markdown("---")
+st.subheader("🧮 Current plan")
+
+# 4 στήλες με μεγάλο gap για να μη “κοπούν” οι τίτλοι/τιμές
+c1, c2, c3, c4 = st.columns([1,1,1,1], gap="large")
+with c1:
+    st.metric("r_max (mL/kg/h)", f"{r_max_dyn:.2f}")
+with c2:
+    st.metric("UF_cap (L)", f"{UF_cap_L:.2f}")
+with c3:
+    st.metric("UF_needed (L)", f"{UF_needed_L:.2f}")
+with c4:
+    st.metric("UF_recommended (L)", f"{UF_recommended_L:.2f}")
+
+# αν υπάρχει έλλειμμα, το μήνυμα μένει σε νέα γραμμή κάτω από τα metrics
+if UF_deficit_L > 0.0:
+    st.warning(f"UF_deficit: {UF_deficit_L:.2f} L — εξετάστε παράταση συνεδρίας ή split UF.")
+
     # Αν υπάρχει έλλειμμα UF, εμφάνισε προειδοποίηση
     if UF_deficit_L > 0.0:
         st.warning(f"UF_deficit: {UF_deficit_L:.2f} L — εξετάστε παράταση συνεδρίας ή split UF.")
@@ -400,6 +424,7 @@ with tab_learn:
         )
 
 st.caption("⚠️ Prototype — validate clinically πριν από συστηματική χρήση • Προσαρμόστε thresholds/συντελεστές ανά μονάδα")
+
 
 
 
