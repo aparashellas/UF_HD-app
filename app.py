@@ -63,7 +63,17 @@ with tab_plan:
     # --- Βασικά
     c1, c2, c3 = st.columns([1.2,1,1])
     with c1:
-        session_dt = st.text_input("Ημερομηνία συνεδρίας (YYYY-MM-DD HH:MM)", value=dt.datetime.now().strftime("%Y-%m-%d %H:%M"))
+        # Αντικατάσταση της γραμμής 66:
+dcol1, dcol2 = st.columns(2)
+with dcol1:
+    session_date = st.date_input("Ημερομηνία", value=dt.date.today())
+with dcol2:
+    session_time = st.time_input(
+        "Ώρα",
+        value=dt.datetime.now().time().replace(second=0, microsecond=0)
+    )
+session_dt = f"{session_date} {session_time.strftime('%H:%M')}"
+
         patient_id = st.text_input("Patient_ID", value="Case01")
         age = st.number_input("Ηλικία (έτη)", value=72, step=1)
         weight = st.number_input("Βάρος (kg)", value=72.0, step=0.1, format="%.2f")
@@ -75,7 +85,7 @@ with tab_plan:
     with c3:
         iv_L = st.number_input("IV infusions (L)", value=0.0, step=0.05, format="%.2f")
         meds_recent = st.selectbox("Αντιυπερτασικά <6h", [0,1], index=1)
-        dm = st.selectbox("ΣΔ (0/1)", [0,1], index=0)
+        dm = st.selectbox("ΣΔ (0/1)", [0, 1], index=0)
         dP_atm_10hPa = st.number_input("ΔP_atm_10hPa (units)", value=0.0, step=0.1, format="%.2f")
 
     # --- Αιμοδυναμικά & συμπτώματα
@@ -162,8 +172,7 @@ with tab_plan:
         chest_symp = st.checkbox("Θωρακικά συμπτώματα", value=False)
 
     # --- Νεφρική/Καρδιολογική συννοσηρότητα (mL/ημέρα & AS/MR/DM)
-    
-st.markdown("### Νεφρική/Καρδιολογική συννοσηρότητα")
+    st.markdown("### Νεφρική/Καρδιολογική συννοσηρότητα")
 cr_cols = st.columns(4)
 with cr_cols[0]:
     residual_urine_mLd = st.number_input(
@@ -172,7 +181,7 @@ with cr_cols[0]:
         help="Ημερήσια υπόλειπη διούρηση σε mL/ημέρα (π.χ. 800)"
     )
 with cr_cols[1]:
-    st.write("ΣΔ (0/1):", dm)  # προαιρετική απλή ένδειξη, ΧΩΡΙΣ widget
+    st.write(f"ΣΔ (0/1): {dm}")  # απλή ένδειξη, ΟΧΙ widget
 with cr_cols[2]:
     severe_as = st.checkbox("Σοβαρή στένωση αορτής (AS)", value=False)
 with cr_cols[3]:
@@ -391,6 +400,7 @@ with tab_learn:
         )
 
 st.caption("⚠️ Prototype — validate clinically πριν από συστηματική χρήση • Προσαρμόστε thresholds/συντελεστές ανά μονάδα")
+
 
 
 
