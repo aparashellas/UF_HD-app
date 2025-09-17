@@ -324,4 +324,5 @@ with tab_learn:
         st.download_button("Download session.json", data=json.dumps(data, indent=2), file_name="session.json", mime="application/json")
 
 st.caption("⚠️ Prototype — validate clinically πριν από συστηματική χρήση • Προσαρμόστε thresholds/συντελεστές ανά μονάδα")
-Add BP, cardiac, machine params & P_over risk
+
+
